@@ -1,0 +1,9 @@
+version: "3.9"
+services:
+  mongodb:
+      image: mongo:latest
+      ports:
+        - 27018:27017
+      environment:
+        - MONGO_INITDB_ROOT_USERNAME=UW_PLAN
+        - MONGO_INITDB_ROOT_PASSWORD=password ## Make sure to change this b4 production.
