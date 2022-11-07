@@ -128,8 +128,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Hide API KEYs
-API_KEY.py
-
 # Virtual Environment
 .testAPI/

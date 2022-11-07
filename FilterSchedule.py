@@ -1,12 +1,71 @@
-from operator import pos
-import requests
-import os
-import gc
-from dotenv import load_dotenv
-load_dotenv()
-from ScheduleManager import isClassClashing
+def removeMergedClassSchedules(classScheduleList, classSchedulesToRemove):
+    del classScheduleList[0]
+    for classSchedule in classSchedulesToRemove:
+        classScheduleList.remove(classSchedule)
+    return classScheduleList
 
-baseURL = "https://openapi.data.uwaterloo.ca/v3/ClassSchedules"
+filteredClassScheduleList = []
+
+def mergeClassSchedules(classSchedule, classScheduleList):
+    for classScheduleToMerge in classScheduleList:
+        for i in range(len(classSchedule)):
+            for course in classScheduleToMerge:
+                classSchedule[i]["TUT"].extend(course["TUT"])
+    filteredClassScheduleList.append(classSchedule)
+
+def courseHasDifferentNonTutorialClassTimings(course1, course2):
+    courseComponentName1List = []
+    courseComponentName2List = []
+
+    for courseComponentName in course1:
+        courseComponentName1List.append(courseComponentName)
+
+    for courseComponentName in course2:
+        courseComponentName2List.append(courseComponentName)
+    
+    if set(courseComponentName1List) != set(courseComponentName2List):
+        return True
+    else:
+        if "TUT" not in courseComponentName1List:
+            return True
+        else:
+            for courseComponentName in course1:
+                if courseComponentName != "TUT":
+                    if course1[courseComponentName] != course2[courseComponentName]:
+                        return True
+            return False
+
+def classScheduleHasSameNonTutorialClass(classSchedule1, classSchedule2):
+    if len(classSchedule1) == len(classSchedule2):
+        for i in range(len(classSchedule1)):
+            if courseHasDifferentNonTutorialClassTimings(classSchedule1[i], classSchedule2[i]):
+                return False
+        return True
+    else:   
+        return False
+
+def filterClassSchedules(classScheduleList):
+
+    while classScheduleList:
+        print(len(classScheduleList))
+
+        classSchedulesToMerge = []
+        for classSchedule in  classScheduleList[1:]:
+            if classScheduleHasSameNonTutorialClass(classSchedule, classScheduleList[0]):
+                classSchedulesToMerge.append(classSchedule)
+                
+        print(len(classSchedulesToMerge))
+
+        mergeClassSchedules(classScheduleList[0], classSchedulesToMerge)
+        classScheduleList = removeMergedClassSchedules(classScheduleList, classSchedulesToMerge)
+                    
+    return filteredClassScheduleList
+
+
+
+
+''''''''''''
+
 
 def schedule_request(term, args):
     headers = {'x-api-key': os.getenv('OPEN_DATA_API_KEY')}
@@ -15,21 +74,18 @@ def schedule_request(term, args):
     for i in range(1,8):
         subject = f"subject_{i}"
         catalog_number = f"catalog_number_{i}"
-        if args[subject] is not None and args[catalog_number] is not None:
+        if args[subject] is not None:
             try:
-                subjectName = args[subject].upper()
-                catalogNumber = args[catalog_number].upper()
-                course_name = f"{subjectName} {catalogNumber}"
-                response = requests.get(f"{baseURL}/{term}/{subjectName}/{catalogNumber}", headers = headers)
-                if response.status_code == 200:
-                    coursePayloadsFetched.append([course_name, createCoursePayloadFromCourseSchedule(response.json())])
-                else:
-                    return ['Error: Try again later']
+                response = requests.get(f"{baseURL}/{term}/{args[subject]}/{args[catalog_number]}", headers = headers)
+                coursePayloadsFetched.append(createCoursePayloadFromCourseSchedule(response.json()))
             except requests.exceptions.RequestException:
                 return ['Error: Try again later']
         else:
             break
-    return createClassSchedule(coursePayloadsFetched)
+    # return coursePayloadsFetched
+    listTo = createClassSchedule(coursePayloadsFetched)
+    # print(listTo[0])
+    return listTo
 
 
 def createClassSchedule(coursePayloads):
@@ -47,27 +103,23 @@ def createClassSchedule(coursePayloads):
 
     for coursePayload in coursePayloads:
         if classScheduleListToReturn == []:
-            for course in courseToAdd(coursePayload[1]):
-                classScheduleListToReturn.append({coursePayload[0]: course})
+            for course in courseToAdd(coursePayload):
+                classScheduleListToReturn.append([course])
         else:
             temporaryClassScheduleList = classScheduleListToReturn
             classScheduleListToReturn = []
             for classSchedule in temporaryClassScheduleList:
-                for courseNameInSchedule in classSchedule:
-                    for course in courseToAdd(coursePayload[1]):
-                        if not areCoursesClashing(classSchedule[courseNameInSchedule], course):
+                for courseInSchedule in classSchedule:
+                    for course in courseToAdd(coursePayload):
+                        if not areCoursesClashing(courseInSchedule, course):
                             newClassSchedule = classSchedule.copy()
-                            newClassSchedule[coursePayload[0]] = course
+                            newClassSchedule.append(course)
                             classScheduleListToReturn.append(newClassSchedule)
+        print("Completed 1 coursePayload")
+    print("Completed all coursePayloads ... about to return")
+    return classScheduleListToReturn
 
-    tutorialClassListToReturn = {}
-    for coursePayload in coursePayloads:
-        if "TUT" in coursePayload[1]:
-            tutorialClassListToReturn[coursePayload[0]] = coursePayload[1]["TUT"]
 
-    finalDictToReturn = {"length": len(classScheduleListToReturn),"classSchedules": classScheduleListToReturn, "tutorialClasses": tutorialClassListToReturn}
-
-    return finalDictToReturn
 
 def createCoursePayloadFromCourseSchedule(inputSchedule):
 
@@ -141,9 +193,6 @@ def courseToAdd(coursePayload):
     for courseComponentName in coursePayload:
         listOfCourseComponentsOffered.append(courseComponentName)
 
-    if "TUT" in listOfCourseComponentsOffered:
-        listOfCourseComponentsOffered.remove("TUT")
-
     for courseComponentName in listOfCourseComponentsOffered:
         if courseComponentName == "TST":
             if courseListToReturn == []:
@@ -169,42 +218,4 @@ def courseToAdd(coursePayload):
                             newCourse[courseComponentName] = [courseComponent]
                             courseListToReturn.append(newCourse)
     return courseListToReturn
-        
-'''
-    courseComponent = {
-        "courseComponent": "TST",
-        "scheduleData": [],
-        ...
-    }
 
-    course = {
-        "TST": [
-            courseComponent_1,
-            ...
-            ],
-        "LEC": [
-            courseComponent_1,
-            ],
-        ...
-    }
-
-    coursePayload = {
-        "TST": [
-            courseComponent_1,
-            ...
-            courseComponent_n
-            ],
-        "LEC": [
-            courseComponent_1,
-            ...
-            courseComponent_n
-            ],
-        ...
-    }
-
-    courseSchedule = {
-        courseComponent_1,
-        ...
-        courseComponent_n
-    }
-'''
